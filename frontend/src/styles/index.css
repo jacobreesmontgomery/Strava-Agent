@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    body {
+        @apply bg-gray-50 text-gray-800;
+    }
+
+    button {
+        @apply transition-all duration-200;
+    }
+
+    button:disabled {
+        @apply opacity-50 cursor-not-allowed;
+    }
+
+    textarea {
+        @apply resize-none;
+    }
+
+    input,
+    textarea {
+        @apply outline-none;
+    }
+}
