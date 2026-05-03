@@ -1,4 +1,4 @@
-# Coaching Agent
+# Strava Agent
 
 A full-stack coaching agent monorepo featuring a Python FastAPI backend powered by LangGraph and Anthropic, with a React + TypeScript frontend chatbot interface.
 
