@@ -13,6 +13,7 @@ from stravalib.client import Client
 from stravalib.protocol import AccessInfo
 
 from factories.tools import create_strava_tools
+from factories.metrics import create_metrics_tools
 
 logger = getLogger(__name__)
 
@@ -81,7 +82,9 @@ class CoachingAgent:
         Returns:
             CompiledStateGraph: The created LangChain agent.
         """
-        tools = create_strava_tools(client=self.client)
+        strava_tools = create_strava_tools(client=self.client)
+        metrics_tools = create_metrics_tools()
+        tools = strava_tools + metrics_tools
 
         # TODO: Add domain context to the prompt (topics/metrics the agent should focus on, types of insights to provide, etc.)
         return create_agent(
@@ -92,10 +95,30 @@ class CoachingAgent:
             answer any questions they may have about their training, performance, and progress.
             
             ## **Available Tools**:
+            
+            ### Strava Data Retrieval:
             - `get_athlete_profile`: Fetches the athlete's profile information from Strava.
             - `get_activities`: Fetches the athlete's activities from Strava, with optional filters.
             - `get_activity_details`: Fetches detailed information about a specific activity, including 
                 splits and performance metrics.
+
+            ### Metrics Calculation (Use these for ALL arithmetic with training data):
+            - `calculate_average_pace`: Calculates average pace across activities. Input the activities list.
+            - `calculate_average_speed`: Calculates average speed across activities.
+            - `summarize_weekly_training`: Provides weekly training summary (total distance, time, breakdown by type).
+            - `filter_activities_by_date_range`: Filters activities within a date range before analysis.
+            - `calculate_elevation_metrics`: Calculates total elevation gain/loss across activities.
+
+            ## **IMPORTANT - Math and Calculations**:
+            ALWAYS use the metric calculation tools for ANY arithmetic involving training data. 
+            Do NOT attempt to perform manual calculations. The metric tools handle:
+            - Pace calculations (min/km, min/mi)
+            - Speed calculations (km/h, mph)
+            - Distance/time aggregations
+            - Unit conversions (meters to km/mi, seconds to formatted time)
+            - Weekly/date-range filtering and summarization
+            
+            When a user asks about summaries, averages, or totals, use the appropriate metric tool.
 
             When a user asks for details about specific activities, you must first use the `get_activities` 
             tool to acquire the activity ID, and then use the `get_activity_details` tool to fetch the 

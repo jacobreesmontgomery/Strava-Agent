@@ -1,10 +1,19 @@
 """Factory for creating Strava tools."""
 
-from typing import Any
+from logging import getLogger
 from langchain.tools import tool, BaseTool
 
 from stravalib.client import Client
 from stravalib.model import DetailedActivity, DetailedAthlete
+
+from models.tools import (
+    AthleteProfile,
+    Activity,
+    ActivityDetail,
+    Split,
+)
+
+logger = getLogger(__name__)
 
 
 def create_strava_tools(client: Client) -> list[BaseTool]:
@@ -18,30 +27,40 @@ def create_strava_tools(client: Client) -> list[BaseTool]:
     """
 
     @tool
-    def get_athlete_profile() -> dict[str, Any]:
+    def get_athlete_profile() -> AthleteProfile:
         """
         Fetches the athlete's profile information from Strava.
 
         Returns:
-            dict: A dictionary containing athlete profile details.
+            AthleteProfile: Athlete profile details.
         """
-        athlete: DetailedAthlete = client.get_athlete()
-        return {
-            "id": athlete.id,
-            "username": athlete.username,
-            "bio": athlete.description,
-            "firstname": athlete.firstname,
-            "lastname": athlete.lastname,
-            "city": athlete.city,
-            "country": athlete.country,
-        }
+        try:
+            athlete: DetailedAthlete = client.get_athlete()
+            profile = AthleteProfile(
+                id=athlete.id or 0,
+                username=athlete.username or "",
+                bio=athlete.description,
+                firstname=athlete.firstname or "",
+                lastname=athlete.lastname or "",
+                city=athlete.city,
+                country=athlete.country,
+            )
+            logger.info(f"Successfully fetched athlete profile for {athlete.username}")
+            return profile
+        except Exception as e:
+            logger.error(f"Error fetching athlete profile: {e}")
+            raise
 
+    # NOTE: Consider doing some arithmetic on the acquired activities to return more insightful metrics (e.g. total distance, average pace, etc.)
+    # to reduce agent reasoning load and improve response quality. Doing this may remove
+    # the need for the additional metrics tools.
+    # TODO: Add unit support (km vs mi).
     @tool
     def get_activities(
         before: str | None = None,
         after: str | None = None,
         limit: int | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[Activity]:
         """Fetches the athlete's activities from Strava.
 
         Args:
@@ -50,26 +69,43 @@ def create_strava_tools(client: Client) -> list[BaseTool]:
             limit (int | None): Maximum number of activities to fetch.
 
         Returns:
-            list[dict]: A list of dictionaries containing activity details.
+            list[Activity]: A list of activity objects.
         """
-        activities = client.get_activities(before=before, after=after, limit=limit)
-        return [
-            {
-                "id": activity.id,
-                "name": activity.name,
-                "type": activity.type,
-                "distance": activity.distance,
-                "moving_time": activity.moving_time,
-                "elapsed_time": activity.elapsed_time,
-                "start_date": activity.start_date,
-            }
-            for activity in activities
-        ]
+        try:
+            activities_raw = client.get_activities(
+                before=before,
+                after=after,
+                limit=limit,
+            )
 
+            # TODO: Add avg_pace as an additional parameter.
+            # TODO: Fix type mismatch errors for the relevant fields (type, distance, etc.).
+            activities = [
+                Activity(
+                    id=activity.id or 0,
+                    name=activity.name or "",
+                    type=activity.type,  # type: ignore
+                    distance=activity.distance or 0.0,
+                    moving_time=activity.moving_time or 0,
+                    elapsed_time=activity.elapsed_time or 0,
+                    start_date=activity.start_date,  # type: ignore
+                )
+                for activity in activities_raw
+            ]
+
+            logger.info(
+                f"Successfully fetched {len(activities)} activities (limit: {limit})"
+            )
+            return activities
+        except Exception as e:
+            logger.error(f"Error fetching activities: {e}")
+            raise
+
+    # TODO: Add unit support (km vs mi).
     @tool
     def get_activity_details(
         activity_id: int, include_all_efforts: bool = False
-    ) -> dict[str, Any]:
+    ) -> ActivityDetail:
         """Fetches detailed information about a specific activity.
 
         Args:
@@ -77,39 +113,49 @@ def create_strava_tools(client: Client) -> list[BaseTool]:
             include_all_efforts (bool): Whether to include all efforts in the response.
 
         Returns:
-            dict: A dictionary containing detailed information about the activity.
+            ActivityDetail: Detailed activity information.
         """
-        activity: DetailedActivity = client.get_activity(
-            activity_id=activity_id, include_all_efforts=include_all_efforts
-        )
-        return {
-            "id": activity.id,
-            "name": activity.name,
-            "type": activity.type,
-            "description": activity.description,
-            "distance": activity.distance,
-            "moving_time": activity.moving_time,
-            "elapsed_time": activity.elapsed_time,
-            "start_date": activity.start_date,
-            "average_speed": activity.average_speed,
-            "max_speed": activity.max_speed,
-            "splits": (
-                [
-                    {
-                        "distance": split.distance,
-                        "elapsed_time": split.elapsed_time,
-                        "moving_time": split.moving_time,
-                        "pace_zone": split.pace_zone,
-                        "elevation_difference": split.elevation_difference,
-                        "average_heartrate": split.average_heartrate,
-                        "average_speed": split.average_speed,
-                        "average_grade_adjusted_speed": split.average_grade_adjusted_speed,
-                    }
+        try:
+            activity: DetailedActivity = client.get_activity(
+                activity_id=activity_id,
+                include_all_efforts=include_all_efforts,
+            )
+
+            splits = []
+            if activity.splits_metric:
+                splits = [
+                    Split(
+                        distance=split.distance or 0.0,
+                        elapsed_time=split.elapsed_time or 0,
+                        moving_time=split.moving_time or 0,
+                        pace_zone=split.pace_zone,
+                        elevation_difference=split.elevation_difference,
+                        average_heartrate=split.average_heartrate,
+                        average_speed=split.average_speed,
+                        average_grade_adjusted_speed=split.average_grade_adjusted_speed,
+                    )
                     for split in activity.splits_metric
                 ]
-                if activity.splits_metric
-                else []
-            ),
-        }
+
+            # TODO: Add avg_pace as an additional parameter.
+            activity_detail = ActivityDetail(
+                id=activity.id or 0,
+                name=activity.name or "",
+                type=activity.type,  # type: ignore
+                description=activity.description,
+                distance=activity.distance or 0.0,
+                moving_time=activity.moving_time or 0,
+                elapsed_time=activity.elapsed_time or 0,
+                start_date=activity.start_date,  # type: ignore
+                average_speed_m_s=activity.average_speed,
+                max_speed_m_s=activity.max_speed,
+                splits=splits,
+            )
+
+            logger.info(f"Successfully fetched details for activity {activity_id}")
+            return activity_detail
+        except Exception as e:
+            logger.error(f"Error fetching activity details for {activity_id}: {e}")
+            raise
 
     return [get_athlete_profile, get_activities, get_activity_details]
